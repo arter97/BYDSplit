@@ -37,6 +37,7 @@ import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.ShizukuRemoteProcess
 import rikka.shizuku.SystemServiceHelper
+import java.lang.reflect.Method
 import java.util.concurrent.Executors
 
 class SplitService : Service() {
@@ -50,6 +51,13 @@ class SplitService : Service() {
 
         private const val SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT = 0
         private const val WINDOWING_MODE_SPLIT_SCREEN_SECONDARY = 4
+
+        // Shizuku.newProcess() is private since API 13; call it via reflection
+        private val newProcess: Method by lazy {
+            Shizuku::class.java.getDeclaredMethod(
+                "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
+            ).apply { isAccessible = true }
+        }
     }
 
     // All Shizuku work runs serially off the main thread
@@ -64,6 +72,26 @@ class SplitService : Service() {
         Class.forName("android.app.IActivityTaskManager\$Stub")
             .getMethod("asInterface", IBinder::class.java)
             .invoke(null, binder)!!
+    }
+
+    // Reflection lookups are slow; resolve each hidden ATM method once
+    private val setTaskWindowingModeSplitScreenPrimary: Method by lazy {
+        atm.javaClass.getMethod(
+            "setTaskWindowingModeSplitScreenPrimary", Int::class.java, Int::class.java,
+            Boolean::class.java, Boolean::class.java, Rect::class.java, Boolean::class.java
+        )
+    }
+    private val setTaskWindowingMode: Method by lazy {
+        atm.javaClass.getMethod("setTaskWindowingMode", Int::class.java, Int::class.java, Boolean::class.java)
+    }
+    private val getTasks: Method by lazy {
+        atm.javaClass.getMethod("getTasks", Int::class.java)
+    }
+    private val registerTaskStackListener: Method by lazy {
+        atm.javaClass.getMethod("registerTaskStackListener", Class.forName("android.app.ITaskStackListener"))
+    }
+    private val unregisterTaskStackListener: Method by lazy {
+        atm.javaClass.getMethod("unregisterTaskStackListener", Class.forName("android.app.ITaskStackListener"))
     }
 
     private val taskStackListener by lazy {
@@ -171,13 +199,8 @@ class SplitService : Service() {
         }
 
         // Fullscreen stacks can't be resized; move both tasks into split-screen first
-        atm.javaClass.getMethod(
-            "setTaskWindowingModeSplitScreenPrimary", Int::class.java, Int::class.java,
-            Boolean::class.java, Boolean::class.java, Rect::class.java, Boolean::class.java
-        ).invoke(atm, leftTask, SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT, true, false, null, false)
-        atm.javaClass.getMethod(
-            "setTaskWindowingMode", Int::class.java, Int::class.java, Boolean::class.java
-        ).invoke(atm, rightTask, WINDOWING_MODE_SPLIT_SCREEN_SECONDARY, true)
+        setTaskWindowingModeSplitScreenPrimary.invoke(atm, leftTask, SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT, true, false, null, false)
+        setTaskWindowingMode.invoke(atm, rightTask, WINDOWING_MODE_SPLIT_SCREEN_SECONDARY, true)
 
         val list = exec("am stack list")
         val (leftBounds, rightBounds) = splitBounds()
@@ -238,7 +261,7 @@ class SplitService : Service() {
         if (!listening) return
         val top = try {
             @Suppress("UNCHECKED_CAST")
-            (atm.javaClass.getMethod("getTasks", Int::class.java).invoke(atm, 1)
+            (getTasks.invoke(atm, 1)
                     as List<ActivityManager.RunningTaskInfo>).firstOrNull()?.topActivity?.packageName
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get top task", e)
@@ -259,8 +282,7 @@ class SplitService : Service() {
 
     private fun registerListener() {
         if (listening) return
-        atm.javaClass.getMethod("registerTaskStackListener", Class.forName("android.app.ITaskStackListener"))
-            .invoke(atm, taskStackListener)
+        registerTaskStackListener.invoke(atm, taskStackListener)
         listening = true
     }
 
@@ -268,8 +290,7 @@ class SplitService : Service() {
         if (!listening) return
         listening = false
         try {
-            atm.javaClass.getMethod("unregisterTaskStackListener", Class.forName("android.app.ITaskStackListener"))
-                .invoke(atm, taskStackListener)
+            unregisterTaskStackListener.invoke(atm, taskStackListener)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unregister listener", e)
         }
@@ -318,11 +339,7 @@ class SplitService : Service() {
             ?.takeIf { it.size == 4 }?.joinToString(" ")
 
     private fun exec(cmd: String): String {
-        // Shizuku.newProcess() is private since API 13; call it via reflection
-        val method = Shizuku::class.java.getDeclaredMethod(
-            "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
-        ).apply { isAccessible = true }
-        val process = method.invoke(null, arrayOf("sh", "-c", cmd), null, null) as ShizukuRemoteProcess
+        val process = newProcess.invoke(null, arrayOf("sh", "-c", cmd), null, null) as ShizukuRemoteProcess
         val out = process.inputStream.bufferedReader().readText()
         process.waitFor()
         Log.d(TAG, "$ $cmd\n$out")
