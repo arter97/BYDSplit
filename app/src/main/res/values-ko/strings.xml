@@ -1,0 +1,14 @@
+<resources>
+    <string name="settings">설정</string>
+    <string name="shizuku_permission_denied">Shizuku 권한이 거부되었습니다</string>
+    <string name="shizuku_not_running">Shizuku가 실행 중이 아닙니다</string>
+    <string name="select_both_apps">먼저 두 앱을 모두 선택하세요</string>
+    <string name="reinstall_to_reconfigure">다시 설정하려면 BYD Split을 재설치하세요</string>
+    <string name="apply">적용</string>
+    <string name="no_app_selected">선택된 앱 없음</string>
+    <string name="cancel">취소</string>
+    <string name="choose_app">앱 선택</string>
+    <string name="channel_split">화면 분할</string>
+    <string name="split_active">화면 분할 사용 중</string>
+    <string name="stop">중지</string>
+</resources>

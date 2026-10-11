@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history and tags for the revision number and changelog
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+          cat > app/signing.properties <<PROPS
+          storeFile=release.keystore
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          PROPS
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon assembleRelease -x lintVitalRelease
+
+      - name: Rename APK
+        run: |
+          rev="r$(git rev-list --count HEAD)"
+          name="BYDSplit-${rev}-$(git rev-parse --short HEAD).apk"
+          cp app/build/outputs/apk/release/app-release.apk "$name"
+          echo "REV=$rev" >> "$GITHUB_ENV"
+          echo "APK=$name" >> "$GITHUB_ENV"
+
+      - name: Generate changelog
+        run: |
+          # Commits since the previous rN release, or the whole history for the first one
+          prev=$(git describe --tags --abbrev=0 --match 'r[0-9]*' HEAD^ 2>/dev/null || true)
+          {
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s (%h)' ${prev:+$prev..}HEAD
+          } > CHANGELOG.md
+          cat CHANGELOG.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.REV }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ env.REV }}
+          body_path: CHANGELOG.md
+          files: ${{ env.APK }}
+
+      - name: Clean up signing key
+        if: always()
+        run: rm -f app/release.keystore app/signing.properties

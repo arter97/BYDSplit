@@ -1,0 +1,4 @@
+/build
+/signing.properties
+*.keystore
+*.passwd

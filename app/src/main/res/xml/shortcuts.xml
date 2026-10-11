@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:shortcutId="settings"
+        android:shortcutShortLabel="@string/settings">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetClass="com.arter97.bydsplit.MainActivity"
+            android:targetPackage="com.arter97.bydsplit">
+            <extra
+                android:name="settings"
+                android:value="true" />
+        </intent>
+    </shortcut>
+</shortcuts>
